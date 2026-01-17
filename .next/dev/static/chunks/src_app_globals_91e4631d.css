@@ -1,0 +1,13 @@
+/* [project]/src/app/globals.css [app-client] (css) */
+:root {
+  --lightningcss-light: initial;
+  --lightningcss-dark: ;
+  color-scheme: light;
+}
+
+body {
+  color: #111;
+  background: #fff6f4;
+}
+
+/*# sourceMappingURL=src_app_globals_91e4631d.css.map*/

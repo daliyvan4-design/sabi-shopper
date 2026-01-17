@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 1, "column": 0}, "map": {"version":3,"sources":["file:///Users/macbookair/sabi-shopper/src/app/globals.css"],"sourcesContent":[":root { color-scheme: light; }\nbody { background: #fff6f4; color: #111; }\n"],"names":[],"mappings":"AAAA;;;;;;AACA"}}]
+}
