@@ -1,69 +1,73 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
+import { put } from "@vercel/blob";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
-function isImageByName(name: string) {
-  const ext = (name.split(".").pop() || "").toLowerCase();
-  return ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"].includes(ext);
+function isImageFile(file: File) {
+  const name = (file.name || "").toLowerCase();
+  const ext = name.split(".").pop() || "";
+  const okExt = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"].includes(ext);
+  const okType = (file.type || "").startsWith("image/");
+  // iPhone: parfois type vide → on accepte si extension OK
+  return okType || okExt;
 }
 
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
-    const images = formData.getAll("images") as File[];
+
+    // ✅ IMPORTANT: on garde "images" pour ne pas casser ton front actuel
+    const raw = formData.getAll("images");
+    const images = raw.filter((f): f is File => f instanceof File);
 
     if (!images || images.length === 0) {
-      return NextResponse.json({ error: "Aucune image reçue" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Aucune image reçue" }, { status: 400 });
     }
 
-    const id = crypto.randomBytes(8).toString("hex");
-    const uploadDir = path.join(process.cwd(), "public", "uploads", id);
-    fs.mkdirSync(uploadDir, { recursive: true });
-
-    let savedCount = 0;
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    const uploads: Array<{ url: string; pathname: string; name: string; size: number; type: string }> = [];
     const skipped: string[] = [];
 
     for (const img of images) {
       const name = img.name || "image";
-      const okByType = (img.type || "").startsWith("image/");
-      const okByName = isImageByName(name);
-
-      // ✅ on accepte si type OK OU extension OK (utile quand type est vide sur iPhone)
-      if (!okByType && !okByName) {
+      if (!isImageFile(img)) {
         skipped.push(name);
         continue;
       }
 
-      const bytes = Buffer.from(await img.arrayBuffer());
-      if (bytes.length > 12 * 1024 * 1024) {
-        return NextResponse.json({ error: "Image trop lourde (max 12MB)" }, { status: 413 });
+      // limite 12MB comme avant
+      if (img.size > 12 * 1024 * 1024) {
+        return NextResponse.json({ ok: false, error: "Image trop lourde (max 12MB)" }, { status: 413 });
       }
 
-      const ext = name.includes(".") ? name.split(".").pop() : "jpg";
-      const filename = `${crypto.randomBytes(6).toString("hex")}.${(ext || "jpg").toLowerCase()}`;
-      fs.writeFileSync(path.join(uploadDir, filename), bytes);
-      savedCount++;
+      const ext = (name.split(".").pop() || "jpg").toLowerCase();
+      const key = `uploads/${id}/${crypto.randomUUID()}.${ext}`;
+
+      const blob = await put(key, img, { access: "public" });
+
+      uploads.push({
+        url: blob.url,
+        pathname: blob.pathname,
+        name,
+        size: img.size,
+        type: img.type,
+      });
     }
 
-    if (savedCount === 0) {
-      return NextResponse.json(
-        { error: "Aucune image sauvegardée", skipped },
-        { status: 400 }
-      );
+    if (uploads.length === 0) {
+      return NextResponse.json({ ok: false, error: "Aucune image sauvegardée", skipped }, { status: 400 });
     }
 
     return NextResponse.json({
+      ok: true,
       id,
+      uploads,
+      // tes routes existantes (tu gardes la logique)
       galleryPath: `/u/${id}`,
-      savedCount,
-      receivedCount: images.length,
-      skipped,
+      devisPath: `/devis/${id}`,
     });
-  } catch (err: any) {
-    console.error("UPLOAD_ERROR:", err);
-    return NextResponse.json({ error: err?.message || "Erreur serveur upload" }, { status: 500 });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ ok: false, error: "Upload impossible" }, { status: 500 });
   }
 }
